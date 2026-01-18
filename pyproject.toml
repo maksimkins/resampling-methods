@@ -32,7 +32,9 @@ dependencies = [
     "jupyterlab (>=4.0.0)",
     "notebook (>=7.0.0)",
     "ipykernel (>=6.29.0)",
-    "ipywidgets (>=8.1.0)"           # Interactive widgets in notebooks
+    "ipywidgets (>=8.1.0)",           # Interactive widgets in notebooks
+    "ucimlrepo (>=0.0.7,<0.0.8)",
+    "tqdm (>=4.67.1,<5.0.0)"
 ]
 
 [build-system]
