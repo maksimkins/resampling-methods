@@ -38,7 +38,14 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{ include = "data", from = "src" }]
+packages = [
+    { include = "resampling" }
+]
+
+include = [
+    { path = "resampling/data/uci_ml_raw", format = ["sdist", "wheel"] },
+    { path = "resampling/data/uci_ml_processed", format = ["sdist", "wheel"] }
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
