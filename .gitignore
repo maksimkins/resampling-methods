@@ -11,6 +11,7 @@ __pycache__/
 
 
 #data/*
+/resampling/data/resampled/
 
 outputs/
 results/
