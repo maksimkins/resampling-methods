@@ -81,9 +81,9 @@ def log_transform_all(df):
 def log_transform_column(df, col_name):
     df_out = df.copy()
     min_val = df_out[col_name].min()
-        if min_val < 0: 
-            col_log = np.log1p(df_out[col_name] - min_val)
-        else: 
-            col_log = np.log1p(df_out[col_name])
+    if min_val < 0: 
+        col_log = np.log1p(df_out[col_name] - min_val)
+    else: 
+        col_log = np.log1p(df_out[col_name])
     df_out[col_name] = col_log
     return df_out

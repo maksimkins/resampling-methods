@@ -15,7 +15,7 @@ def create_synthetic_overlap(n_samples=1000, n_features=1, weights=(0.9, 0.1), d
     # Generate Majority Class based on density type
     if density_type == 'high':
         # Type 1: High density in overlap
-        X_maj = rng.normal(loc=1.0, scale=1.0, size=(n_maj, n_features))
+        X_maj = rng.normal(loc=0.18, scale=1.0, size=(n_maj, n_features))
         
     elif density_type == 'sparse':
         # Type 2: Overlap exists but majority is sparse there
