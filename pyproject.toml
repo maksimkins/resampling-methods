@@ -53,7 +53,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.setuptools.packages.find]
 where = ["."] 
-include = ["resampling*"]  
+include = ["oversampling*", "preprocessing*"] 
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
