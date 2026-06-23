@@ -1,11 +1,13 @@
 from typing import Optional, Union, List, Tuple
+from numbers import Real, Integral
 
 import numpy as np
 from numpy.typing import NDArray
 
-from imblearn.base import BaseSampler
-
 from sklearn.utils import check_random_state
+from sklearn.utils._param_validation import Interval
+
+from imblearn.base import BaseSampler
 
 from ._resc_utils import (
     calculate_set_n_size_re_sc,
@@ -35,7 +37,13 @@ class ReSC(BaseSampler):
         get_feature_names_out(input_features): Generates output feature names for the 2d concatenated space.
     """
     _sampling_type = 'over-sampling'
-
+    _parameter_constraints = {
+        "M": [Interval(Real, 0, None, closed="left")],          
+        "k": [Interval(Integral, 1, None, closed="left")],      
+        "alpha": [Interval(Real, 0, 1, closed="both")],         
+        "epsilon": [Interval(Real, 0, None, closed="neither")], 
+        "random_state": ["random_state"]                        
+    }
     def __init__(self, M=1.5, k=5, alpha=0.05, epsilon=0.05, random_state=None):
         super().__init__()
         self.M = M

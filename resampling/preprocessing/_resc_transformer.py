@@ -4,10 +4,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_is_fitted, check_array
+from sklearn.utils.validation import check_is_fitted, check_array, validate_data
 
 
-class ReSCTransformer(BaseEstimator, TransformerMixin):
+class ReSCTransformer(TransformerMixin, BaseEstimator):
     """
     Transforms test data into a 2d concatenated space for prediction with Re-SC models.
     
@@ -23,10 +23,9 @@ class ReSCTransformer(BaseEstimator, TransformerMixin):
         pass
 
     def fit(self, X: NDArray[np.float64], y: Optional[NDArray] = None) -> 'ReSCTransformer':
-        X = check_array(X, accept_sparse=False)
-        self.n_features_in_ = X.shape[1]
+        X = validate_data(self, X=X, reset=True, accept_sparse=False)
         self.original_d_ = self.n_features_in_ // 2
-        self.is_fitted_ = True 
+        self.is_fitted_ = True
 
         return self
 
@@ -34,16 +33,12 @@ class ReSCTransformer(BaseEstimator, TransformerMixin):
         check_is_fitted(self, 'is_fitted_')
         X = check_array(X, accept_sparse=False)
 
-        if X.shape[1] == self.n_features_in_:
-            return X
-
         if X.shape[1] == self.original_d_:
             return np.hstack([X, X])
 
-        raise ValueError(
-            f"X has {X.shape[1]} features. ReSCTransformer expects either "
-            f"{self.original_d_} (raw test data) or {self.n_features_in_} (resampled train data)."
-        )
+        X = validate_data(self, X, reset=False, accept_sparse=False)
+
+        return X
 
     def get_feature_names_out(
         self, 

@@ -1,12 +1,18 @@
 from typing import Optional, Union, List, Tuple
+from numbers import Real, Integral
 
 import numpy as np
 from numpy.typing import NDArray
 
-from imblearn.base import BaseSampler
 from sklearn.utils import check_random_state
+from sklearn.utils._param_validation import Interval
 
-from ._resc_kmeans_utils import get_set_n_kmeans_re_sc, kmeans_re_sc_concatenation
+from imblearn.base import BaseSampler
+
+from ._resc_kmeans_utils import (
+    get_set_n_kmeans_re_sc, 
+    kmeans_re_sc_concatenation
+)
 
 class KMeansReSC(BaseSampler):
     """
@@ -27,7 +33,11 @@ class KMeansReSC(BaseSampler):
         get_feature_names_out(input_features): Generates output feature names for the 2d concatenated space.
     """
     _sampling_type = 'over-sampling'
-
+    _parameter_constraints = {
+        "M": [Interval(Real, 0, None, closed="left")],
+        "num_candidates_to_test": [Interval(Integral, 1, None, closed="left")],
+        "random_state": ["random_state"]
+    }
     def __init__(self, M=1.5, num_candidates_to_test=5, random_state=None):
         super().__init__()
         self.M = M
