@@ -37,3 +37,8 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+
+build/
+dist/
+*.egg-info/
