@@ -6,7 +6,6 @@ from numpy.typing import NDArray
 from imblearn.base import BaseSampler
 
 from sklearn.utils import check_random_state
-from sklearn.utils.validation import check_is_fitted
 
 from ._resc_utils import (
     calculate_set_n_size_re_sc,
@@ -15,7 +14,7 @@ from ._resc_utils import (
 )
 
 
-class ReSC1(BaseSampler):
+class ReSC(BaseSampler):
     """
     Resampling based on Sample Concatenation (Re-SC) using density-weighted random sampling.
     
