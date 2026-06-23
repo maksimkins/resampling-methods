@@ -9,7 +9,7 @@ from sklearn.utils._param_validation import Interval
 
 from imblearn.base import BaseSampler
 
-from ._resc_utils import (
+from .utils._resc_utils import (
     calculate_set_n_size_re_sc,
     get_set_n_random_weighted_re_sc,
     re_sc_concatenation

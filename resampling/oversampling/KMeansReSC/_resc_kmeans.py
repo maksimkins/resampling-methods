@@ -9,7 +9,7 @@ from sklearn.utils._param_validation import Interval
 
 from imblearn.base import BaseSampler
 
-from ._resc_kmeans_utils import (
+from .utils._resc_kmeans_utils import (
     get_set_n_kmeans_re_sc, 
     kmeans_re_sc_concatenation
 )
