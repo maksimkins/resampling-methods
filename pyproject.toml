@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "resampling-methods"
+name = "imblearn_resc"
 version = "0.1.0"
 description = "Resampling based on Sample Concatenation (Re-SC) algorithms for imbalanced learning"
 authors = [
@@ -39,7 +39,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]  
-include = ["oversampling*", "preprocessing*"]
+include = ["imblearn_resc*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
