@@ -73,7 +73,7 @@ class ReSC(BaseSampler):
             ValueError: If the dataset does not contain at least two distinct classes.
         """ 
         random_state = check_random_state(self.random_state)
-        np.random.seed(random_state.randint(0, 2**32 - 1))
+        np.random.seed(random_state.randint(0, 2**31 - 1))
         
         labels, counts = np.unique(y, return_counts=True)
         if len(labels) < 2:

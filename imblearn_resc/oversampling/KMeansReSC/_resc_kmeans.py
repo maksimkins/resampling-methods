@@ -65,7 +65,7 @@ class KMeansReSC(BaseSampler):
             ValueError: If the dataset does not contain at least two distinct classes.
         """
         random_state_obj = check_random_state(self.random_state)
-        seed = random_state_obj.randint(0, 2**32 - 1)
+        seed = random_state_obj.randint(0, 2**31 - 1)
         
         labels, counts = np.unique(y, return_counts=True)
         if len(labels) < 2:
