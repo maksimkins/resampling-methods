@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from sklearn.exceptions import NotFittedError
 
-from resampling.preprocessing import ReSCTransformer
+from imblearn_resc.preprocessing import ReSCTransformer
 
 
 def test_fit_calculates_dimensions():
