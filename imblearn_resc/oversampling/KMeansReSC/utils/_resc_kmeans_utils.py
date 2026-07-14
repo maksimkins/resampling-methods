@@ -153,7 +153,6 @@ def get_set_n_kmeans_re_sc(
     step = max(1, (upper_bound - n1) // max(1, (num_candidates_to_test - 1)))
     candidates = list(range(n1, upper_bound + 1, step))
     
-    # Assuming find_best_k_geometric is imported from your other utils
     best_k = find_best_k_geometric(X_maj_safe, candidates, random_state)
     best_k = min(best_k, len(X_maj_safe))
     
