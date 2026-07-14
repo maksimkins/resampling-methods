@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union, Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -6,6 +6,7 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 
 from sklearn.neighbors import NearestNeighbors
+from sklearn.utils import check_random_state
 
 def calculate_set_n_size_re_sc(
     X_maj: NDArray[np.float64], 
@@ -61,18 +62,22 @@ def calculate_set_n_size_re_sc(
 
 def get_set_n_random_weighted_re_sc(
     X: NDArray[np.float64], 
-    y: NDArray[np.int_], 
+    y: NDArray[Any], 
     n_size: int, 
-    k: int = 5
+    k: int = 5,
+    knn_params: Optional[dict] = None,
+    random_state: Optional[Union[int, np.random.RandomState]] = None
 ) -> NDArray[np.float64]:
     """
     Selects a subset of majority class samples (Set_N) using a density-weighted random sampling strategy.
 
     Args:
         X (numpy.typing.NDArray[np.float64]): 2D NumPy array containing entire training dataset.
-        y (numpy.typing.NDArray[np.int_]): 1D NumPy array containing labels.
+        y (numpy.typing.NDArray[Any]): 1D NumPy array containing labels.
         n_size (int): number of majority samples to select.
         k (int, optional): number of nearest neighbors to evaluate for the weighting mechanism. Defaults to 5.
+        knn_params (dict, optional): Additional keyword arguments to pass to NearestNeighbors.
+        random_state (int, RandomState instance, default=None): Controls the randomization for numpy choice.
 
     Returns:
         numpy.typing.NDArray[np.float64]: A 2D NumPy array containing selected majority subset.
@@ -95,7 +100,9 @@ def get_set_n_random_weighted_re_sc(
     X_std[X_std == 0] = 1.0 
     X_norm = (X - X_mean) / X_std
     
-    knn = NearestNeighbors(n_neighbors=k + 1).fit(X_norm)
+    # Safely unpack KNN parameters
+    knn_kwargs = dict(knn_params) if knn_params is not None else {}
+    knn = NearestNeighbors(n_neighbors=k + 1, **knn_kwargs).fit(X_norm)
     
     X_maj_norm = X_norm[maj_indices]
     distances, neighbor_idxs = knn.kneighbors(X_maj_norm)
@@ -121,7 +128,11 @@ def get_set_n_random_weighted_re_sc(
     probs = weights_arr / np.sum(weights_arr)
     actual_n_size = min(n_size, len(valid_indices_arr))
 
-    selected_indices = np.random.choice(
+    # Initialize standard scikit-learn random state
+    rng = check_random_state(random_state)
+    
+    # Use the seeded generator for selection
+    selected_indices = rng.choice(
         valid_indices_arr, 
         size=actual_n_size, 
         replace=False, 
@@ -134,9 +145,9 @@ def re_sc_concatenation(
     X_min: NDArray[np.float64], 
     X_maj: NDArray[np.float64], 
     X_set_n: NDArray[np.float64],
-    min_label: int = 1,
-    maj_label: int = -1
-) -> Tuple[NDArray[np.float64], NDArray[np.int_]]:
+    min_label: Union[int, str, float] = 1,
+    maj_label: Union[int, str, float] = -1
+) -> Tuple[NDArray[np.float64], NDArray[Any]]:
     """
     Concatenates pairs of samples from the same class to map the dataset into a 2d dimensional space.
 
@@ -144,11 +155,11 @@ def re_sc_concatenation(
         X_min (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the minority class.
         X_maj (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the original majority class.
         X_set_n (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the selected majority subset.
-        min_label (int, optional): The target label assigned to the minority class.
-        maj_label (int, optional): The target label assigned to the majority class.
+        min_label (Union[int, str, float], optional): The target label assigned to the minority class.
+        maj_label (Union[int, str, float], optional): The target label assigned to the majority class.
 
     Returns:
-        Tuple[numpy.typing.NDArray[np.float64], numpy.typing.NDArray[np.int_]]: 
+        Tuple[numpy.typing.NDArray[np.float64], numpy.typing.NDArray[Any]]: 
             A tuple containing:
             - X_resampled: The concatenated 2D NumPy array with 2 * d features.
             - y_resampled: The 1D NumPy array containing the target labels for the new samples.
@@ -164,7 +175,7 @@ def re_sc_concatenation(
     P_tile = np.tile(X_min, (m, 1))
     P_c = np.hstack([P_repeat, P_tile]) 
     
-    y_p_c = np.full(len(P_c), min_label, dtype=np.int_)
+    y_p_c = np.full(len(P_c), min_label)
 
     M = len(X_maj)
     k = len(X_set_n)
@@ -173,7 +184,8 @@ def re_sc_concatenation(
         N_repeat = np.repeat(X_maj, k, axis=0)  
         Set_N_tile = np.tile(X_set_n, (M, 1)) 
         N_c = np.hstack([N_repeat, Set_N_tile])
-        y_n_c = np.full(len(N_c), maj_label, dtype=np.int_)
+        
+        y_n_c = np.full(len(N_c), maj_label)
         
         X_c_array = np.vstack([P_c, N_c])
         y_c_array = np.hstack([y_p_c, y_n_c])
