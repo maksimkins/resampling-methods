@@ -1,4 +1,4 @@
-from typing import Tuple, List
+from typing import Tuple, List, Union, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -54,11 +54,54 @@ def find_best_k_geometric(
     return best_k
 
 
+def get_safe_majority_samples_knn(
+    X: NDArray[np.float64],
+    y: NDArray[Any],
+    X_maj: NDArray[np.float64],
+    maj_label: Union[int, str, float],
+    n_neighbors: int = 5,
+    threshold: float = 0.9
+) -> NDArray[np.float64]:
+    """
+    Identifies 'safe' majority samples using a KNN classifier.
+
+    A sample is considered safe if the KNN classifier predicts its probability 
+    of belonging to the majority class is greater than or equal to the threshold.
+    If no samples meet this criteria, the original majority set is returned.
+
+    Args:
+        X (numpy.typing.NDArray[np.float64]): Features of the entire training dataset.
+        y (numpy.typing.NDArray[Any]): Target labels of the entire training dataset.
+        X_maj (numpy.typing.NDArray[np.float64]): Features of the majority class subset.
+        maj_label (Union[int, str, float]): The target label assigned to the majority class.
+        n_neighbors (int, optional): Number of neighbors to use for KNN. Defaults to 5.
+        threshold (float, optional): The minimum probability required to be considered safe. Defaults to 0.9.
+
+    Returns:
+        numpy.typing.NDArray[np.float64]: A 2D NumPy array containing the 'safe' majority samples.
+    """
+    knn = KNeighborsClassifier(n_neighbors=n_neighbors)
+    knn.fit(X, y)
+    
+    maj_class_idx = np.where(knn.classes_ == maj_label)[0][0]
+    
+    probs = knn.predict_proba(X_maj)
+    prob_majority = probs[:, maj_class_idx]
+    
+    safe_mask = prob_majority >= threshold
+    X_maj_safe = X_maj[safe_mask]
+    
+    if len(X_maj_safe) == 0:
+        X_maj_safe = X_maj 
+        
+    return X_maj_safe
+
+
 def get_set_n_kmeans_re_sc(
     X: NDArray[np.float64],
-    y: NDArray[np.int_],
-    min_label: int,
-    maj_label: int,
+    y: NDArray[Any],
+    min_label: Union[int, str, float],
+    maj_label: Union[int, str, float],
     M: float = 1.5,
     num_candidates_to_test: int = 5,
     random_state: int = 42
@@ -66,19 +109,18 @@ def get_set_n_kmeans_re_sc(
     """
     Generates the Set_N subset using K-Means clustering on 'safe' majority samples.
 
-    This function identifies 'safe' majority samples using a KNN classifier (samples 
-    with >= 90% probability of belonging to the majority class). It then dynamically 
+    This function identifies 'safe' majority samples using a KNN classifier, dynamically 
     generates a list of candidate values for the number of clusters based on the 
     imbalance ratio bounds, finds the optimal k using the Silhouette Score, and 
     returns the resulting K-Means cluster centers to be used as Set_N.
 
     Args:
         X (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the entire training dataset.
-        y (numpy.typing.NDArray[np.int_]): 1D NumPy array containing the target labels.
-        min_label (int): The target label assigned to the minority class.
-        maj_label (int): The target label assigned to the majority class.
+        y (numpy.typing.NDArray[Any]): 1D NumPy array containing the target labels.
+        min_label (Union[int, str, float]): The target label assigned to the minority class.
+        maj_label (Union[int, str, float]): The target label assigned to the majority class.
         M (float, optional): The maximum acceptable imbalance ratio threshold. Defaults to 1.5.
-        num_candidates_to_test (int, optional): The number of candidate values for k to evaluate during geometric tuning. Defaults to 5.
+        num_candidates_to_test (int, optional): Number of k candidates to evaluate during tuning. Defaults to 5.
         random_state (int, optional): Seed used by the random number generator for reproducibility. Defaults to 42.
 
     Returns:
@@ -99,23 +141,19 @@ def get_set_n_kmeans_re_sc(
     n1 = int((n_min ** 2) / n_maj)
     upper_bound = int(M * n1)
     
-    knn = KNeighborsClassifier(n_neighbors=5)
-    knn.fit(X, y)
-    
-    maj_class_idx = np.where(knn.classes_ == maj_label)[0][0]
-    
-    probs = knn.predict_proba(X_maj)
-    prob_majority = probs[:, maj_class_idx]
-    
-    safe_mask = prob_majority >= 0.9
-    X_maj_safe = X_maj[safe_mask]
-    
-    if len(X_maj_safe) == 0:
-        X_maj_safe = X_maj 
+    X_maj_safe = get_safe_majority_samples_knn(
+        X=X, 
+        y=y, 
+        X_maj=X_maj, 
+        maj_label=maj_label, 
+        n_neighbors=5, 
+        threshold=0.9
+    )
         
     step = max(1, (upper_bound - n1) // max(1, (num_candidates_to_test - 1)))
     candidates = list(range(n1, upper_bound + 1, step))
     
+    # Assuming find_best_k_geometric is imported from your other utils
     best_k = find_best_k_geometric(X_maj_safe, candidates, random_state)
     best_k = min(best_k, len(X_maj_safe))
     
