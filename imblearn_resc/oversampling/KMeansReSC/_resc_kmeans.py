@@ -1,4 +1,4 @@
-from typing import Optional, Union, List, Tuple
+from typing import Optional, Union, List, Tuple, Any
 from numbers import Real, Integral
 
 import numpy as np
@@ -26,51 +26,75 @@ class KMeansReSC(BaseSampler):
     Attributes:
         M (float): The maximum acceptable imbalance ratio threshold for the resulting dataset.
         num_candidates_to_test (int): How many 'k' values to test during geometric tuning.
-        random_state (int, RandomState instance, default=None): Controls the randomization of the algorithm.
+        random_state (int, RandomState instance, default=None): Controls the randomization.
+        n_neighbors (int): Number of neighbors to use for the KNN safety check.
+        safe_threshold (float): Minimum probability required for a majority sample to be safe.
+        knn_params (dict, optional): Additional keyword arguments to pass to KNeighborsClassifier.
+        kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
 
     Methods:
         _fit_resample(X, y): Core resampling logic that executes KMeansReSC and returns concatenated arrays.
         get_feature_names_out(input_features): Generates output feature names for the 2d concatenated space.
     """
     _sampling_type = 'over-sampling'
+    
     _parameter_constraints = {
         "M": [Interval(Real, 0, None, closed="left")],
         "num_candidates_to_test": [Interval(Integral, 1, None, closed="left")],
-        "random_state": ["random_state"]
+        "random_state": ["random_state"],
+        "n_neighbors": [Interval(Integral, 1, None, closed="left")],
+        "safe_threshold": [Interval(Real, 0.0, 1.0, closed="both")],
+        "knn_params": [dict, None],
+        "kmeans_params": [dict, None]
     }
-    def __init__(self, M=1.5, num_candidates_to_test=5, random_state=None):
+    
+    def __init__(
+        self, 
+        M=1.5, 
+        num_candidates_to_test=5, 
+        random_state=None,
+        n_neighbors=5,
+        safe_threshold=0.9,
+        knn_params=None,
+        kmeans_params=None
+    ):
         super().__init__()
         self.M = M
         self.num_candidates_to_test = num_candidates_to_test
         self.random_state = random_state
+        self.n_neighbors = n_neighbors
+        self.safe_threshold = safe_threshold
+        self.knn_params = knn_params
+        self.kmeans_params = kmeans_params
 
     def _fit_resample(
         self, 
         X: NDArray[np.float64], 
-        y: NDArray[np.int_]
-    ) -> Tuple[NDArray[np.float64], NDArray[np.int_]]:
+        y: NDArray[Any]  
+    ) -> Tuple[NDArray[np.float64], NDArray[Any]]:
         """
         Executes resampling logic for KMeansReSC.
 
         Args:
             X (numpy.typing.NDArray[np.float64]): 2D matrix containing the features of the original training dataset.
-            y (numpy.typing.NDArray[np.int_]): 1D array containing the target labels.
+            y (numpy.typing.NDArray[Any]): 1D array containing the target labels.
 
         Returns:
-            Tuple[numpy.typing.NDArray[np.float64], numpy.typing.NDArray[np.int_]]: 
+            Tuple[numpy.typing.NDArray[np.float64], numpy.typing.NDArray[Any]]: 
                 A tuple containing the resampled feature matrix (mapped to a 2d space) 
                 and the corresponding label array.
 
         Raises:
             ValueError: If the dataset does not contain at least two distinct classes.
         """
-        random_state_obj = check_random_state(self.random_state)
-        seed = random_state_obj.randint(0, 2**31 - 1)
-        
+
         labels, counts = np.unique(y, return_counts=True)
         if len(labels) < 2:
             raise ValueError("The target 'y' needs to have at least two classes.")
             
+        random_state_obj = check_random_state(self.random_state)
+        seed = random_state_obj.randint(0, 2**31 - 1)
+        
         min_label = labels[np.argmin(counts)]
         maj_label = labels[np.argmax(counts)]
 
@@ -81,7 +105,11 @@ class KMeansReSC(BaseSampler):
             maj_label=maj_label,
             M=self.M,
             num_candidates_to_test=self.num_candidates_to_test,
-            random_state=seed
+            random_state=seed,
+            n_neighbors=self.n_neighbors,
+            safe_threshold=self.safe_threshold,
+            knn_params=self.knn_params,
+            kmeans_params=self.kmeans_params
         )
 
         X_resampled, y_resampled = kmeans_re_sc_concatenation(
