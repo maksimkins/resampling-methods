@@ -16,20 +16,6 @@ def find_best_k_geometric(
 ) -> int:
     """
     Finds the optimal number of clusters (k) using the Silhouette Score.
-
-    Evaluates a list of candidate values for k by applying K-Means clustering 
-    and selecting the value that maximizes the Silhouette Score. If only one 
-    valid candidate is provided or all candidates are invalid, it provides a 
-    safe fallback.
-
-    Args:
-        X_maj (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the majority class.
-        k_candidates (List[int]): A list of integer candidate values for the number of clusters (k) to test.
-        random_state (int): Seed used by the random number generator for K-Means initialization.
-        kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
-
-    Returns:
-        int: The optimal number of clusters (k) selected from the candidates.
     """
     if len(k_candidates) == 1:
         single_k = k_candidates[0] if k_candidates[0] != 0 else 1  
@@ -40,6 +26,8 @@ def find_best_k_geometric(
     
     kmeans_kwargs = dict(kmeans_params) if kmeans_params is not None else {}
     n_init_val = kmeans_kwargs.pop('n_init', 'auto')
+    
+    kmeans_kwargs.pop('n_clusters', None)
     
     for k in k_candidates:
         if k < 2 or k >= len(X_maj):
@@ -76,24 +64,10 @@ def get_safe_majority_samples_knn(
 ) -> NDArray[np.float64]:
     """
     Identifies 'safe' majority samples using a KNN classifier.
-
-    A sample is considered safe if the KNN classifier predicts its probability 
-    of belonging to the majority class is greater than or equal to the threshold.
-    If no samples meet this criteria, the original majority set is returned.
-
-    Args:
-        X (numpy.typing.NDArray[np.float64]): Features of the entire training dataset.
-        y (numpy.typing.NDArray[Any]): Target labels of the entire training dataset.
-        X_maj (numpy.typing.NDArray[np.float64]): Features of the majority class subset.
-        maj_label (Union[int, str, float]): The target label assigned to the majority class.
-        n_neighbors (int, optional): Number of neighbors to use for KNN. Defaults to 5.
-        threshold (float, optional): The minimum probability required to be considered safe. Defaults to 0.9.
-        knn_params (dict, optional): Additional keyword arguments to pass to KNeighborsClassifier.
-
-    Returns:
-        numpy.typing.NDArray[np.float64]: A 2D NumPy array containing the 'safe' majority samples.
     """
     knn_kwargs = dict(knn_params) if knn_params is not None else {}
+    knn_kwargs.pop('n_neighbors', None)
+    
     knn = KNeighborsClassifier(n_neighbors=n_neighbors, **knn_kwargs)
     knn.fit(X, y)
     
@@ -126,30 +100,6 @@ def get_set_n_kmeans_re_sc(
 ) -> NDArray[np.float64]:
     """
     Generates the Set_N subset using K-Means clustering on 'safe' majority samples.
-
-    This function identifies 'safe' majority samples using a KNN classifier. It then 
-    dynamically generates a list of candidate values for the number of clusters based 
-    on the imbalance ratio bounds, finds the optimal k using the Silhouette Score, 
-    and returns the resulting K-Means cluster centers to be used as Set_N.
-
-    Args:
-        X (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features.
-        y (numpy.typing.NDArray[Any]): 1D NumPy array containing the target labels.
-        min_label (Union[int, str, float]): Target label assigned to the minority class.
-        maj_label (Union[int, str, float]): Target label assigned to the majority class.
-        M (float, optional): Maximum acceptable imbalance ratio threshold. Defaults to 1.5.
-        num_candidates_to_test (int, optional): Number of k candidates to evaluate. Defaults to 5.
-        random_state (int, optional): Seed used for reproducibility. Defaults to 42.
-        n_neighbors (int, optional): Number of neighbors to use for KNN safety check. Defaults to 5.
-        safe_threshold (float, optional): Minimum probability required to be considered safe. Defaults to 0.9.
-        knn_params (dict, optional): Additional keyword arguments to pass to KNeighborsClassifier.
-        kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
-
-    Returns:
-        numpy.typing.NDArray[np.float64]: A 2D NumPy array of the K-Means cluster centers.
-
-    Raises:
-        ValueError: If either the minority or majority class contains zero samples.
     """
     X_min = X[y == min_label]
     X_maj = X[y == maj_label]
@@ -187,6 +137,8 @@ def get_set_n_kmeans_re_sc(
     kmeans_kwargs = dict(kmeans_params) if kmeans_params is not None else {}
     n_init_val = kmeans_kwargs.pop('n_init', 'auto')
     
+    kmeans_kwargs.pop('n_clusters', None)
+    
     kmeans = KMeans(
         n_clusters=best_k, 
         random_state=random_state, 
@@ -209,22 +161,6 @@ def kmeans_re_sc_concatenation(
 ) -> Tuple[NDArray[np.float64], NDArray[Any]]:
     """
     Concatenates pairs of samples from the same class to map the dataset into a 2d dimensional space.
-
-    Args:
-        X_min (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the minority class.
-        X_maj (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the original majority class.
-        X_set_n (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the selected majority subset.
-        min_label (Union[int, str, float], optional): The target label assigned to the minority class.
-        maj_label (Union[int, str, float], optional): The target label assigned to the majority class.
-
-    Returns:
-        Tuple[numpy.typing.NDArray[np.float64], numpy.typing.NDArray[Any]]: 
-            A tuple containing:
-            - X_resampled: The concatenated 2D NumPy array with 2 * d features.
-            - y_resampled: The 1D NumPy array containing the target labels for the new samples.
-
-    Raises:
-        ValueError: If X_min is empty, as the minority class must contain at least one sample.
     """
     m = len(X_min)
     if m == 0:

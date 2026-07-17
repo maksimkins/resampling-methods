@@ -64,6 +64,7 @@ def get_set_n_random_weighted_re_sc(
     X: NDArray[np.float64], 
     y: NDArray[Any], 
     n_size: int, 
+    maj_label: Union[int, str, float], 
     k: int = 5,
     knn_params: Optional[dict] = None,
     random_state: Optional[Union[int, np.random.RandomState]] = None
@@ -75,6 +76,7 @@ def get_set_n_random_weighted_re_sc(
         X (numpy.typing.NDArray[np.float64]): 2D NumPy array containing entire training dataset.
         y (numpy.typing.NDArray[Any]): 1D NumPy array containing labels.
         n_size (int): number of majority samples to select.
+        maj_label (Union[int, str, float]): The target label assigned to the majority class.
         k (int, optional): number of nearest neighbors to evaluate for the weighting mechanism. Defaults to 5.
         knn_params (dict, optional): Additional keyword arguments to pass to NearestNeighbors.
         random_state (int, RandomState instance, default=None): Controls the randomization for numpy choice.
@@ -86,9 +88,6 @@ def get_set_n_random_weighted_re_sc(
         ValueError: If there are no majority samples present in the dataset.
         ValueError: If no valid majority samples are found.
     """
-    labels, counts = np.unique(y, return_counts=True)
-    maj_label = labels[np.argmax(counts)]
-
     maj_mask = (y == maj_label)
     maj_indices = np.where(maj_mask)[0]
     
@@ -100,12 +99,13 @@ def get_set_n_random_weighted_re_sc(
     X_std[X_std == 0] = 1.0 
     X_norm = (X - X_mean) / X_std
     
-    # Safely unpack KNN parameters
     knn_kwargs = dict(knn_params) if knn_params is not None else {}
+    knn_kwargs.pop('n_neighbors', None)
+    
     knn = NearestNeighbors(n_neighbors=k + 1, **knn_kwargs).fit(X_norm)
     
     X_maj_norm = X_norm[maj_indices]
-    distances, neighbor_idxs = knn.kneighbors(X_maj_norm)
+    _, neighbor_idxs = knn.kneighbors(X_maj_norm)
     
     weights = []
     valid_indices = []
@@ -128,10 +128,8 @@ def get_set_n_random_weighted_re_sc(
     probs = weights_arr / np.sum(weights_arr)
     actual_n_size = min(n_size, len(valid_indices_arr))
 
-    # Initialize standard scikit-learn random state
     rng = check_random_state(random_state)
     
-    # Use the seeded generator for selection
     selected_indices = rng.choice(
         valid_indices_arr, 
         size=actual_n_size, 
