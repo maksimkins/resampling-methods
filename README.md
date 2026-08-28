@@ -2,7 +2,7 @@
 
 **Re-SC (Resampling based on Sample Concatenation)** algorithms for imbalanced learning. 
 
-This package is fully compatible with the `scikit-learn` and `imbalanced-learn` ecosystems. It addresses class imbalance by mapping data into a higher-dimensional (2d) concatenated feature space, utilizing either density-weighted random sampling (`ReSC`) or K-Means clustering (`KMeansReSC`) to safely resample the majority and minority classes.
+This package integrates Re-SC resampling with the `scikit-learn` and `imbalanced-learn` ecosystems. It maps strictly imbalanced binary data into a higher-dimensional ($2d$) concatenated feature space. `ReSC` uses density-weighted random sampling; `KMeansReSC` filters majority inputs and summarizes the retained input collection with KMeans centroids.
 
 ## 📦 Installation
 
@@ -71,7 +71,13 @@ print(classification_report(y_test, y_pred_resc))
 # Option B: KMeansReSC Pipeline
 # ==========================================
 pipeline_kmeans = Pipeline([
-    ('sampler', KMeansReSC(M=1.5, num_candidates_to_test=5, random_state=42)),
+    ('sampler', KMeansReSC(
+        M=1.5,
+        n_neighbors=5,
+        safe_threshold=0.9,
+        random_state=42,
+        kmeans_params={'n_init': 10},
+    )),
     ('transformer', ReSCTransformer()),             # <--- Mandatory!
     ('classifier', RandomForestClassifier(random_state=42))
 ])
@@ -92,5 +98,35 @@ print(classification_report(y_test, y_pred_kmeans))
 * **`alpha`** *(float, default=0.05)*: Significance level for the Z-test used to compute the required statistical sample size.
 
 ### `KMeansReSC`
-* **`M`** *(float, default=1.5)*: The maximum acceptable imbalance ratio threshold for the resulting dataset.
-* **`num_candidates_to_test`** *(int, default=5)*: How many 'k' values (clusters) to test during geometric tuning using the Silhouette Score.
+
+* **`M`** *(float, default=1.5)*: Multiplier used to define the upper cluster-count candidate bound. It is not an unconditional balance guarantee.
+* **`n_neighbors`** *(int, default=5)*: Neighborhood size for the majority-input safety score. The queried training observation is included.
+* **`safe_threshold`** *(float, default=0.9)*: Inclusive uniform-vote threshold used to retain majority inputs.
+* **`random_state`** *(default=None)*: Random state used to derive one integer seed shared by candidate and final KMeans fits.
+* **`knn_params`** *(dict or None)*: Nearest-neighbor search options. `n_neighbors`, `metric`, and `weights` are owned by KMeans-ReSC and rejected here.
+* **`kmeans_params`** *(dict or None)*: Additional KMeans options, including `n_init`. `n_clusters` and `random_state` are owned by KMeans-ReSC and rejected here.
+
+KMeans-ReSC evaluates the complete ordered candidate grid from 1 through its calculated upper bound. Silhouette scoring is attempted only for feasible candidates with at least two resulting clusters. The highest observed score is selected, ties use the smallest cluster count, and an unscorable grid falls back to one centroid.
+
+The safety filter applies only to original majority input samples. Generated centroids are retained without a second safety filter and are not guaranteed to satisfy the input-safety threshold. With one-hot encoded inputs, centroid coordinates may be fractional numerical prototypes rather than decodable categorical records.
+
+After fitting, `fallback_used_` reports whether an empty filtered collection forced restoration of the complete majority input collection. `fit_resample` always keeps the standard two-value return contract.
+
+### Container behavior
+
+For `KMeansReSC`, NumPy input produces NumPy output. A pandas `DataFrame` input produces a `DataFrame` with generated doubled feature names such as `age_1` and `age_2`; a pandas target `Series` remains a `Series` aligned to the new output index. Original row indices and source dtypes are not preserved because output rows include generated centroids and concatenated pairs.
+
+### Repeatability
+
+Repeatability requires identical ordered input values, preprocessing, package versions, platform, integer `random_state`, and integer `kmeans_params['n_init']`. Other accepted configurations, such as `random_state=None` or `n_init='auto'`, remain outside this guarantee. Centroid order and cross-platform bitwise identity are not guaranteed.
+
+### Windows and MKL troubleshooting
+
+On affected Windows environments using Microsoft OpenMP and Intel MKL, scikit-learn may warn about a KMeans memory leak. Configure the process before Python starts:
+
+```powershell
+$env:OMP_NUM_THREADS = "1"
+python your_script.py
+```
+
+KMeans-ReSC never changes `OMP_NUM_THREADS` and never suppresses the upstream warning. The value above is an operational workaround, not an estimator parameter or universal package default.

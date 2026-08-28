@@ -18,6 +18,14 @@ def test_fit_calculates_dimensions():
     assert transformer.is_fitted_ is True
 
 
+def test_fit_rejects_odd_concatenated_dimension():
+    transformer = ReSCTransformer()
+    X_train = np.array([[1.0, 2.0, 3.0]])
+
+    with pytest.raises(ValueError, match="even number"):
+        transformer.fit(X_train)
+
+
 def test_transform_duplicates_test_data():
     """Test Scenario 1: Pipeline passes raw test data (d features) and it gets duplicated."""
     X_train = np.array([[1.0, 2.0, 3.0, 4.0]])
