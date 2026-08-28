@@ -24,6 +24,11 @@ class ReSCTransformer(TransformerMixin, BaseEstimator):
 
     def fit(self, X: NDArray[np.float64], y: Optional[NDArray] = None) -> 'ReSCTransformer':
         X = validate_data(self, X=X, reset=True, accept_sparse=False)
+        if self.n_features_in_ % 2 != 0:
+            raise ValueError(
+                "ReSCTransformer training input must have an even number of "
+                "features representing the concatenated 2d space."
+            )
         self.original_d_ = self.n_features_in_ // 2
         self.is_fitted_ = True
 
