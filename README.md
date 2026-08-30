@@ -76,6 +76,7 @@ pipeline_kmeans = Pipeline([
         n_neighbors=5,
         safe_threshold=0.9,
         random_state=42,
+        max_k_candidates=None,
         kmeans_params={'n_init': 10},
     )),
     ('transformer', ReSCTransformer()),             # <--- Mandatory!
@@ -103,14 +104,15 @@ print(classification_report(y_test, y_pred_kmeans))
 * **`n_neighbors`** *(int, default=5)*: Neighborhood size for the majority-input safety score. The queried training observation is included.
 * **`safe_threshold`** *(float, default=0.9)*: Inclusive uniform-vote threshold used to retain majority inputs.
 * **`random_state`** *(default=None)*: Random state used to derive one integer seed shared by candidate and final KMeans fits.
+* **`max_k_candidates`** *(int or None, default=None)*: Maximum size of a deterministic, evenly spaced grid over the Silhouette-feasible part of the theoretical interval. `None` evaluates every feasible integer.
 * **`knn_params`** *(dict or None)*: Nearest-neighbor search options. `n_neighbors`, `metric`, and `weights` are owned by KMeans-ReSC and rejected here.
 * **`kmeans_params`** *(dict or None)*: Additional KMeans options, including `n_init`. `n_clusters` and `random_state` are owned by KMeans-ReSC and rejected here.
 
-KMeans-ReSC evaluates the complete ordered candidate grid from 1 through its calculated upper bound. Silhouette scoring is attempted only for feasible candidates with at least two resulting clusters. The highest observed score is selected, ties use the smallest cluster count, and an unscorable grid falls back to one centroid.
+KMeans-ReSC defines $n_1=\lfloor|\mathcal{P}|^2/|\mathcal{N}|\rfloor$, $K_{\min}=\max(1,n_1)$, and $K_{\max}=\max(1,\lfloor M n_1\rfloor)$. By default it evaluates every Silhouette-feasible integer in $[K_{\min},K_{\max}]$. Setting `max_k_candidates` retains at most that many deterministically spaced feasible values, always including the feasible endpoints. The highest observed score is selected and ties use the smallest cluster count. If no value satisfies $2\leq K<|\mathcal{N}_{\mathrm{safe}}|$, the final fit uses $\min(K_{\min},|\mathcal{N}_{\mathrm{safe}}|)$ centroids without Silhouette selection.
 
 The safety filter applies only to original majority input samples. Generated centroids are retained without a second safety filter and are not guaranteed to satisfy the input-safety threshold. With one-hot encoded inputs, centroid coordinates may be fractional numerical prototypes rather than decodable categorical records.
 
-After fitting, `fallback_used_` reports whether an empty filtered collection forced restoration of the complete majority input collection. `fit_resample` always keeps the standard two-value return contract.
+After fitting, `fallback_used_` reports whether an empty filtered collection forced restoration of the complete majority input collection. `selection_fallback_used_` reports whether no candidate produced a Silhouette score. Selection diagnostics are available as `n1_`, `k_min_`, `k_max_`, `safe_majority_count_`, `candidate_ks_`, and `selected_k_`. `fit_resample` always keeps the standard two-value return contract.
 
 ### Container behavior
 

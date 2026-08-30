@@ -56,11 +56,13 @@ def _split_kmeans_params(kmeans_params: Optional[dict]) -> tuple[dict, Any]:
 
 
 def find_best_k_geometric(
-    X_maj: NDArray[np.float64], 
+    X_maj: NDArray[np.float64],
     k_candidates: List[int],
     random_state: int,
-    kmeans_params: Optional[dict] = None
-) -> int:
+    kmeans_params: Optional[dict] = None,
+    fallback_k: int = 1,
+    return_fallback_status: bool = False,
+) -> Union[int, Tuple[int, bool]]:
     """
     Selects a cluster count using the highest observed Silhouette score.
 
@@ -68,7 +70,7 @@ def find_best_k_geometric(
     and selecting the value that maximizes the observed Silhouette Score. Keys
     owned by KMeans-ReSC are rejected in user-provided dictionaries. A single
     feasible candidate is evaluated normally. If no candidate can be scored,
-    the method returns 1.
+    the method returns ``fallback_k``.
 
     Args:
         X_maj (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the features of the majority class.
@@ -104,7 +106,48 @@ def find_best_k_geometric(
             best_score = score
             best_k = k
 
-    return 1 if best_k is None else best_k
+    fallback_used = best_k is None
+    selected_k = fallback_k if fallback_used else best_k
+    if return_fallback_status:
+        return selected_k, fallback_used
+    return selected_k
+
+
+def build_k_candidate_grid(
+    k_min: int,
+    k_max: int,
+    safe_majority_count: int,
+    max_k_candidates: Optional[int] = None,
+) -> List[int]:
+    """Build the ordered, Silhouette-feasible candidate grid.
+
+    Candidate bounds are intersected with ``2 <= K < safe_majority_count``.
+    When ``max_k_candidates`` is set, deterministic integer-floor spacing keeps
+    both feasible endpoints while limiting the number of evaluated values.
+    """
+    if max_k_candidates is not None:
+        if not isinstance(max_k_candidates, (int, np.integer)):
+            raise TypeError("max_k_candidates must be an integer or None.")
+        if max_k_candidates < 2:
+            raise ValueError("max_k_candidates must be at least 2.")
+
+    lower = max(int(k_min), 2)
+    upper = min(int(k_max), int(safe_majority_count) - 1)
+    if lower > upper:
+        return []
+
+    candidate_count = upper - lower + 1
+    if max_k_candidates is None or max_k_candidates >= candidate_count:
+        return list(range(lower, upper + 1))
+
+    denominator = max_k_candidates - 1
+    width = upper - lower
+    return sorted(
+        {
+            lower + (index * width) // denominator
+            for index in range(max_k_candidates)
+        }
+    )
 
 
 def get_safe_majority_samples_knn(
@@ -184,14 +227,20 @@ def get_set_n_kmeans_re_sc(
     n_neighbors: int = 5,
     safe_threshold: float = 0.9,
     knn_params: Optional[dict] = None,
-    kmeans_params: Optional[dict] = None
-) -> Tuple[NDArray[np.float64], bool]:
+    kmeans_params: Optional[dict] = None,
+    max_k_candidates: Optional[int] = None,
+    return_diagnostics: bool = False,
+) -> Union[
+    Tuple[NDArray[np.float64], bool],
+    Tuple[NDArray[np.float64], bool, dict],
+]:
     """
     Generates centroid representatives from threshold-filtered majority inputs.
 
-    This function filters majority inputs, constructs the complete bounded cluster
-    count grid, selects the highest observed feasible Silhouette score, and returns
+    This function filters majority inputs, constructs the corrected Re-SC cluster
+    interval, selects the highest observed feasible Silhouette score, and returns
     every center from the final KMeans fit. The centroids are not filtered again.
+    A deterministic evenly spaced grid can bound candidate count.
 
     Args:
         X (numpy.typing.NDArray[np.float64]): 2D NumPy array containing the entire training dataset's features.
@@ -204,9 +253,14 @@ def get_set_n_kmeans_re_sc(
         safe_threshold (float, optional): Minimum required KNN probability for a sample to be "safe". Defaults to 0.9.
         knn_params (dict, optional): Additional keyword arguments to pass to KNeighborsClassifier.
         kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
+        max_k_candidates (int, optional): Maximum number of feasible candidates.
+            None evaluates every feasible integer in the corrected interval.
+        return_diagnostics (bool, optional): Return selection diagnostics as a
+            third value while preserving the historical two-value default.
 
     Returns:
-        tuple: The selected KMeans centers and safety-filter fallback diagnostic.
+        tuple: The selected KMeans centers and safety-filter fallback diagnostic,
+        optionally followed by selection diagnostics.
 
     Raises:
         ValueError: If either the minority or majority class contains zero samples.
@@ -221,6 +275,7 @@ def get_set_n_kmeans_re_sc(
         raise ValueError("Both minority and majority classes must have at least one sample.")
     
     n1 = int((n_min ** 2) / n_maj)
+    k_min = max(1, n1)
     k_max = max(1, int(M * n1))
 
     X_maj_safe, fallback_used = get_safe_majority_samples_knn(
@@ -233,15 +288,22 @@ def get_set_n_kmeans_re_sc(
         knn_params=knn_params
     )
 
-    candidates = list(range(1, k_max + 1))
+    candidates = build_k_candidate_grid(
+        k_min=k_min,
+        k_max=k_max,
+        safe_majority_count=len(X_maj_safe),
+        max_k_candidates=max_k_candidates,
+    )
+    fallback_k = min(k_min, len(X_maj_safe))
 
-    best_k = find_best_k_geometric(
+    best_k, selection_fallback_used = find_best_k_geometric(
         X_maj_safe,
         candidates,
         random_state,
-        kmeans_params=kmeans_params
+        kmeans_params=kmeans_params,
+        fallback_k=fallback_k,
+        return_fallback_status=True,
     )
-    best_k = min(best_k, len(X_maj_safe))
 
     kmeans_kwargs, n_init_val = _split_kmeans_params(kmeans_params)
 
@@ -255,6 +317,17 @@ def get_set_n_kmeans_re_sc(
 
     X_set_n = kmeans.cluster_centers_
 
+    diagnostics = {
+        "n1": n1,
+        "k_min": k_min,
+        "k_max": k_max,
+        "safe_majority_count": len(X_maj_safe),
+        "candidate_ks": tuple(candidates),
+        "selected_k": best_k,
+        "selection_fallback_used": selection_fallback_used,
+    }
+    if return_diagnostics:
+        return X_set_n, fallback_used, diagnostics
     return X_set_n, fallback_used
 
 

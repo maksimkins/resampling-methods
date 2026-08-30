@@ -22,9 +22,10 @@ class KMeansReSC(BaseSampler):
     
     This algorithm addresses class imbalance by mapping the data into a higher-dimensional 
     (2d) concatenated feature space. It threshold-filters majority inputs using KNN,
-    selects a number of clusters from a bounded complete grid using the highest
+    selects a number of clusters from the Re-SC interval using the highest
     observed Silhouette Score, and uses the resulting K-Means centers as majority
-    representatives.
+    representatives. The interval can be evaluated exhaustively or through a
+    deterministic bounded grid.
 
     Attributes:
         M (float): Multiplier used to define the upper candidate bound.
@@ -33,6 +34,8 @@ class KMeansReSC(BaseSampler):
         safe_threshold (float): Minimum probability required for a majority sample to be safe.
         knn_params (dict, optional): Additional keyword arguments to pass to KNeighborsClassifier.
         kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
+        max_k_candidates (int or None): Maximum number of evenly spaced,
+            Silhouette-feasible candidate values. None evaluates the complete interval.
 
     Methods:
         _fit_resample(X, y): Core resampling logic that executes KMeansReSC and returns concatenated arrays.
@@ -46,7 +49,8 @@ class KMeansReSC(BaseSampler):
         "n_neighbors": [Interval(Integral, 1, None, closed="left")],
         "safe_threshold": [Interval(Real, 0.0, 1.0, closed="both")],
         "knn_params": [dict, None],
-        "kmeans_params": [dict, None]
+        "kmeans_params": [dict, None],
+        "max_k_candidates": [Interval(Integral, 2, None, closed="left"), None],
     }
     
     def __init__(
@@ -56,7 +60,8 @@ class KMeansReSC(BaseSampler):
         n_neighbors=5,
         safe_threshold=0.9,
         knn_params=None,
-        kmeans_params=None
+        kmeans_params=None,
+        max_k_candidates=None,
     ):
         super().__init__()
         self.M = M
@@ -65,6 +70,7 @@ class KMeansReSC(BaseSampler):
         self.safe_threshold = safe_threshold
         self.knn_params = knn_params
         self.kmeans_params = kmeans_params
+        self.max_k_candidates = max_k_candidates
 
     def _fit_resample(
         self, 
@@ -106,7 +112,7 @@ class KMeansReSC(BaseSampler):
         min_label = labels[np.argmin(counts)]
         maj_label = labels[np.argmax(counts)]
 
-        X_set_n, fallback_used = get_set_n_kmeans_re_sc(
+        X_set_n, fallback_used, diagnostics = get_set_n_kmeans_re_sc(
             X=X,
             y=y,
             min_label=min_label,
@@ -116,9 +122,20 @@ class KMeansReSC(BaseSampler):
             n_neighbors=self.n_neighbors,
             safe_threshold=self.safe_threshold,
             knn_params=self.knn_params,
-            kmeans_params=self.kmeans_params
+            kmeans_params=self.kmeans_params,
+            max_k_candidates=self.max_k_candidates,
+            return_diagnostics=True,
         )
         self.fallback_used_ = bool(fallback_used)
+        self.selection_fallback_used_ = bool(
+            diagnostics["selection_fallback_used"]
+        )
+        self.n1_ = int(diagnostics["n1"])
+        self.k_min_ = int(diagnostics["k_min"])
+        self.k_max_ = int(diagnostics["k_max"])
+        self.safe_majority_count_ = int(diagnostics["safe_majority_count"])
+        self.candidate_ks_ = tuple(diagnostics["candidate_ks"])
+        self.selected_k_ = int(diagnostics["selected_k"])
 
         X_resampled, y_resampled = kmeans_re_sc_concatenation(
             X_min=X[y == min_label],
