@@ -31,9 +31,10 @@ def dummy_data():
 
 
 def test_kmeans_resc_init():
-    sampler = KMeansReSC(M=2.0, random_state=42)
+    sampler = KMeansReSC(M=2.0, random_state=42, max_k_candidates=25)
     assert sampler.M == 2.0
     assert sampler.random_state == 42
+    assert sampler.max_k_candidates == 25
 
 
 @pytest.mark.parametrize(
@@ -65,6 +66,13 @@ def test_kmeans_resc_rejects_nonfinite_M(dummy_data):
         sampler.fit_resample(X, y)
 
 
+def test_kmeans_resc_rejects_candidate_limit_below_two(dummy_data):
+    X, y = dummy_data
+    sampler = KMeansReSC(max_k_candidates=1, n_neighbors=1)
+    with pytest.raises(ValueError, match="max_k_candidates"):
+        sampler.fit_resample(X, y)
+
+
 @patch("imblearn_resc.oversampling.KMeansReSC._resc_kmeans.kmeans_re_sc_concatenation")
 @patch("imblearn_resc.oversampling.KMeansReSC._resc_kmeans.get_set_n_kmeans_re_sc")
 def test_kmeans_resc_fit_resample_preserves_two_value_return(
@@ -73,7 +81,16 @@ def test_kmeans_resc_fit_resample_preserves_two_value_return(
     dummy_data,
 ):
     X, y = dummy_data
-    mock_get_set_n.return_value = (np.array([[9.0, 10.0]]), True)
+    diagnostics = {
+        "n1": 1,
+        "k_min": 1,
+        "k_max": 1,
+        "safe_majority_count": 4,
+        "candidate_ks": (),
+        "selected_k": 1,
+        "selection_fallback_used": True,
+    }
+    mock_get_set_n.return_value = (np.array([[9.0, 10.0]]), True, diagnostics)
     mock_concat.return_value = (np.array([[1.0, 2.0, 1.0, 2.0]]), np.array([1]))
 
     sampler = KMeansReSC(M=1.5, random_state=42)
@@ -83,6 +100,13 @@ def test_kmeans_resc_fit_resample_preserves_two_value_return(
     assert result[0].shape == (1, 4)
     assert result[1][0] == 1
     assert sampler.fallback_used_ is True
+    assert sampler.selection_fallback_used_ is True
+    assert sampler.n1_ == 1
+    assert sampler.k_min_ == 1
+    assert sampler.k_max_ == 1
+    assert sampler.safe_majority_count_ == 4
+    assert sampler.candidate_ks_ == ()
+    assert sampler.selected_k_ == 1
     mock_get_set_n.assert_called_once()
     mock_concat.assert_called_once()
 

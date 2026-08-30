@@ -105,21 +105,55 @@ def test_parameter_validation_does_not_mutate_caller_mappings():
     assert knn_params == expected_knn
 
 
-def test_complete_candidate_grid_and_same_seed_reach_all_kmeans_fits():
+def test_candidate_grid_uses_n1_as_lower_bound():
+    assert utils.build_k_candidate_grid(
+        k_min=4,
+        k_max=6,
+        safe_majority_count=20,
+        max_k_candidates=None,
+    ) == [4, 5, 6]
+
+
+def test_bounded_candidate_grid_is_deterministic_and_includes_endpoints():
+    assert utils.build_k_candidate_grid(
+        k_min=10,
+        k_max=24,
+        safe_majority_count=30,
+        max_k_candidates=5,
+    ) == [10, 13, 17, 20, 24]
+
+
+def test_candidate_grid_applies_silhouette_feasibility_before_spacing():
+    assert utils.build_k_candidate_grid(
+        k_min=1,
+        k_max=10,
+        safe_majority_count=6,
+        max_k_candidates=3,
+    ) == [2, 3, 5]
+
+
+def test_corrected_complete_candidate_grid_and_same_seed_reach_all_kmeans_fits():
     X_min = np.arange(8, dtype=float).reshape(4, 2)
     X_maj = np.arange(16, dtype=float).reshape(8, 2) + 100
     X = np.vstack([X_min, X_maj])
     y = np.array([1] * len(X_min) + [0] * len(X_maj))
     seen_candidates = []
 
-    def record_and_choose(X_safe, candidates, random_state, kmeans_params=None):
+    def record_and_choose(
+        X_safe,
+        candidates,
+        random_state,
+        kmeans_params=None,
+        fallback_k=1,
+        return_fallback_status=False,
+    ):
         seen_candidates.extend(candidates)
         kwargs, n_init = utils._split_kmeans_params(kmeans_params)
         for candidate in candidates:
             if 2 <= candidate < len(X_safe):
                 model = _CandidateKMeans(candidate, random_state, n_init, **kwargs)
                 model.fit_predict(X_safe)
-        return 2
+        return (2, False) if return_fallback_status else 2
 
     parameters = {"n_init": 3, "max_iter": 20}
     expected_parameters = parameters.copy()
@@ -132,7 +166,7 @@ def test_complete_candidate_grid_and_same_seed_reach_all_kmeans_fits():
         patch.object(utils, "find_best_k_geometric", side_effect=record_and_choose),
         patch.object(utils, "KMeans", _CandidateKMeans),
     ):
-        centers, fallback_used = utils.get_set_n_kmeans_re_sc(
+        centers, fallback_used, diagnostics = utils.get_set_n_kmeans_re_sc(
             X=X,
             y=y,
             min_label=1,
@@ -141,26 +175,43 @@ def test_complete_candidate_grid_and_same_seed_reach_all_kmeans_fits():
             random_state=17,
             n_neighbors=2,
             kmeans_params=parameters,
+            return_diagnostics=True,
         )
 
-    assert seen_candidates == [1, 2, 3]
+    assert seen_candidates == [2, 3]
     assert fallback_used is False
+    assert diagnostics == {
+        "n1": 2,
+        "k_min": 2,
+        "k_max": 3,
+        "safe_majority_count": 8,
+        "candidate_ks": (2, 3),
+        "selected_k": 2,
+        "selection_fallback_used": False,
+    }
     assert centers.shape == (2, 2)
     assert {model.random_state for model in _CandidateKMeans.calls} == {17}
     assert {model.n_init for model in _CandidateKMeans.calls} == {3}
     assert parameters == expected_parameters
 
 
-def test_n1_zero_still_produces_candidate_one():
+def test_n1_zero_uses_one_centroid_without_silhouette_candidates():
     X_min = np.array([[0.0, 0.0]])
     X_maj = np.arange(8, dtype=float).reshape(4, 2) + 10
     X = np.vstack([X_min, X_maj])
     y = np.array([1, 0, 0, 0, 0])
     seen_candidates = []
 
-    def select_one(X_safe, candidates, random_state, kmeans_params=None):
+    def select_one(
+        X_safe,
+        candidates,
+        random_state,
+        kmeans_params=None,
+        fallback_k=1,
+        return_fallback_status=False,
+    ):
         seen_candidates.extend(candidates)
-        return 1
+        return (fallback_k, True) if return_fallback_status else fallback_k
 
     with (
         patch.object(
@@ -171,7 +222,7 @@ def test_n1_zero_still_produces_candidate_one():
         patch.object(utils, "find_best_k_geometric", side_effect=select_one),
         patch.object(utils, "KMeans", _CandidateKMeans),
     ):
-        utils.get_set_n_kmeans_re_sc(
+        centers, _, diagnostics = utils.get_set_n_kmeans_re_sc(
             X,
             y,
             min_label=1,
@@ -179,9 +230,47 @@ def test_n1_zero_still_produces_candidate_one():
             M=1.5,
             random_state=3,
             n_neighbors=1,
+            return_diagnostics=True,
         )
 
-    assert seen_candidates == [1]
+    assert seen_candidates == []
+    assert len(centers) == 1
+    assert diagnostics["selected_k"] == 1
+    assert diagnostics["selection_fallback_used"] is True
+
+
+def test_infeasible_interval_falls_back_to_minimum_or_safe_count():
+    X_min = np.arange(8, dtype=float).reshape(4, 2)
+    X_maj = np.arange(10, dtype=float).reshape(5, 2) + 100
+    X = np.vstack([X_min, X_maj])
+    y = np.array([1] * len(X_min) + [0] * len(X_maj))
+    X_safe = X_maj[:2]
+
+    with (
+        patch.object(
+            utils,
+            "get_safe_majority_samples_knn",
+            return_value=(X_safe, False),
+        ),
+        patch.object(utils, "KMeans", _CandidateKMeans),
+    ):
+        centers, _, diagnostics = utils.get_set_n_kmeans_re_sc(
+            X,
+            y,
+            min_label=1,
+            maj_label=0,
+            M=1.5,
+            random_state=3,
+            n_neighbors=1,
+            return_diagnostics=True,
+        )
+
+    assert diagnostics["n1"] == 3
+    assert diagnostics["k_min"] == 3
+    assert diagnostics["candidate_ks"] == ()
+    assert diagnostics["selected_k"] == 2
+    assert diagnostics["selection_fallback_used"] is True
+    assert len(centers) == 2
 
 
 def test_safety_filter_enforces_euclidean_uniform_vote_and_self_inclusion():
