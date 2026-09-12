@@ -193,6 +193,62 @@ def test_fixed_integer_configuration_is_repeatable_up_to_row_order(dummy_data):
     np.testing.assert_allclose(first_rows, second_rows)
 
 
+def test_kmeans_resc_exposes_phase_timings_without_changing_fixed_seed_output():
+    majority = np.array(
+        [[float(index), float(index % 3)] for index in range(12)]
+    )
+    minority = np.array(
+        [[20.0 + float(index), float(index % 2)] for index in range(6)]
+    )
+    X = np.vstack([majority, minority])
+    y = np.array([0] * len(majority) + [1] * len(minority))
+    parameters = dict(
+        M=1.5,
+        n_neighbors=1,
+        safe_threshold=0.0,
+        random_state=23,
+        kmeans_params={"n_init": 2},
+    )
+
+    first_X, first_y = KMeansReSC(**parameters).fit_resample(X, y)
+    timed_sampler = KMeansReSC(**parameters)
+    second_X, second_y = timed_sampler.fit_resample(X, y)
+
+    np.testing.assert_allclose(first_X, second_X)
+    np.testing.assert_array_equal(first_y, second_y)
+
+    expected_phases = {
+        "validation_seconds",
+        "representative_bounds_seconds",
+        "safety_neighbor_fit_seconds",
+        "safety_neighbor_query_seconds",
+        "safety_filter_seconds",
+        "candidate_grid_seconds",
+        "candidate_kmeans_fit_seconds",
+        "silhouette_score_seconds",
+        "final_kmeans_fit_seconds",
+        "concatenation_seconds",
+        "unattributed_seconds",
+        "total_internal_seconds",
+    }
+    assert expected_phases.issubset(timed_sampler.phase_timings_)
+    assert all(
+        np.isfinite(value) and value >= 0.0
+        for value in timed_sampler.phase_timings_.values()
+    )
+    measured_total = sum(
+        value
+        for name, value in timed_sampler.phase_timings_.items()
+        if name != "total_internal_seconds"
+    )
+    assert np.isclose(
+        timed_sampler.phase_timings_["total_internal_seconds"],
+        measured_total,
+        rtol=1e-9,
+        atol=1e-6,
+    )
+
+
 def test_sampler_transformer_pipeline_handles_training_and_prediction(dummy_data):
     X, y = dummy_data
     pipeline = Pipeline(

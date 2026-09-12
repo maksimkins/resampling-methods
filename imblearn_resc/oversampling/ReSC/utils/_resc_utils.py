@@ -1,4 +1,5 @@
 from typing import Tuple, Union, Any, Optional
+from time import perf_counter
 
 import numpy as np
 from numpy.typing import NDArray
@@ -7,6 +8,18 @@ import scipy.stats as stats
 
 from sklearn.neighbors import NearestNeighbors
 from sklearn.utils import check_random_state
+
+
+def _record_elapsed(
+    phase_timings: Optional[dict[str, float]],
+    phase_name: str,
+    started: float,
+) -> None:
+    """Accumulate one elapsed interval in an optional phase-timing mapping."""
+    if phase_timings is not None:
+        phase_timings[phase_name] = phase_timings.get(phase_name, 0.0) + (
+            perf_counter() - started
+        )
 
 def calculate_set_n_size_re_sc(
     X_maj: NDArray[np.float64], 
@@ -67,7 +80,8 @@ def get_set_n_random_weighted_re_sc(
     maj_label: Union[int, str, float], 
     k: int = 5,
     knn_params: Optional[dict] = None,
-    random_state: Optional[Union[int, np.random.RandomState]] = None
+    random_state: Optional[Union[int, np.random.RandomState]] = None,
+    phase_timings: Optional[dict[str, float]] = None,
 ) -> NDArray[np.float64]:
     """
     Selects a subset of majority class samples (Set_N) using a density-weighted random sampling strategy.
@@ -80,6 +94,7 @@ def get_set_n_random_weighted_re_sc(
         k (int, optional): number of nearest neighbors to evaluate for the weighting mechanism. Defaults to 5.
         knn_params (dict, optional): Additional keyword arguments to pass to NearestNeighbors.
         random_state (int, RandomState instance, default=None): Controls the randomization for numpy choice.
+        phase_timings (dict, optional): Mutable internal timing collector.
 
     Returns:
         numpy.typing.NDArray[np.float64]: A 2D NumPy array containing selected majority subset.
@@ -94,19 +109,26 @@ def get_set_n_random_weighted_re_sc(
     if len(maj_indices) == 0:
         raise ValueError("No majority samples found in the dataset.")
     
+    normalization_started = perf_counter()
     X_mean = np.mean(X, axis=0)
     X_std = np.std(X, axis=0)
-    X_std[X_std == 0] = 1.0 
+    X_std[X_std == 0] = 1.0
     X_norm = (X - X_mean) / X_std
+    _record_elapsed(phase_timings, "normalization_seconds", normalization_started)
     
     knn_kwargs = dict(knn_params) if knn_params is not None else {}
     knn_kwargs.pop('n_neighbors', None)
     
+    neighbor_fit_started = perf_counter()
     knn = NearestNeighbors(n_neighbors=k + 1, **knn_kwargs).fit(X_norm)
-    
+    _record_elapsed(phase_timings, "neighbor_fit_seconds", neighbor_fit_started)
+
     X_maj_norm = X_norm[maj_indices]
+    neighbor_query_started = perf_counter()
     _, neighbor_idxs = knn.kneighbors(X_maj_norm)
-    
+    _record_elapsed(phase_timings, "neighbor_query_seconds", neighbor_query_started)
+
+    weight_calculation_started = perf_counter()
     weights = []
     valid_indices = []
     
@@ -127,7 +149,13 @@ def get_set_n_random_weighted_re_sc(
         
     probs = weights_arr / np.sum(weights_arr)
     actual_n_size = min(n_size, len(valid_indices_arr))
+    _record_elapsed(
+        phase_timings,
+        "weight_calculation_seconds",
+        weight_calculation_started,
+    )
 
+    sampling_started = perf_counter()
     rng = check_random_state(random_state)
     
     selected_indices = rng.choice(
@@ -136,7 +164,8 @@ def get_set_n_random_weighted_re_sc(
         replace=False, 
         p=probs
     )
-    
+    _record_elapsed(phase_timings, "weighted_sampling_seconds", sampling_started)
+
     return X[selected_indices]
 
 def re_sc_concatenation(

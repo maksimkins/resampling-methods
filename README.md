@@ -114,6 +114,12 @@ The safety filter applies only to original majority input samples. Generated cen
 
 After fitting, `fallback_used_` reports whether an empty filtered collection forced restoration of the complete majority input collection. `selection_fallback_used_` reports whether no candidate produced a Silhouette score. Selection diagnostics are available as `n1_`, `k_min_`, `k_max_`, `safe_majority_count_`, `candidate_ks_`, and `selected_k_`. `fit_resample` always keeps the standard two-value return contract.
 
+### Timing diagnostics
+
+After a successful `fit_resample` call, both samplers expose `phase_timings_`: a dictionary of elapsed seconds for the internal resampling phases. `ReSC` records size calculation, normalization, nearest-neighbor fitting and querying, weight calculation, weighted sampling, and concatenation. `KMeansReSC` records representative bounds, safety-neighbor fitting and querying, safety filtering, candidate-grid construction, candidate KMeans fits, Silhouette scoring, final KMeans fitting, and concatenation.
+
+Each dictionary also includes `total_internal_seconds` and `unattributed_seconds`. The total covers the sampler's internal `_fit_resample` work; the latter covers small operations outside named phases. To measure validation and container-conversion overhead as well, time the public `fit_resample` call in the experiment code with `time.perf_counter`.
+
 ### Container behavior
 
 For `KMeansReSC`, NumPy input produces NumPy output. A pandas `DataFrame` input produces a `DataFrame` with generated doubled feature names such as `age_1` and `age_2`; a pandas target `Series` remains a `Series` aligned to the new output index. Original row indices and source dtypes are not preserved because output rows include generated centroids and concatenated pairs.

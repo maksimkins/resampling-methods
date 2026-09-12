@@ -68,3 +68,44 @@ def test_resc_feature_names():
     names = sampler.get_feature_names_out(["A", "B", "C"])
     expected = np.array(["A_1", "B_1", "C_1", "A_2", "B_2", "C_2"], dtype=object)
     np.testing.assert_array_equal(names, expected)
+
+
+def test_resc_exposes_phase_timings_without_changing_fixed_seed_output(dummy_data):
+    X, y = dummy_data
+    parameters = dict(M=1.5, k=1, random_state=17)
+
+    first_X, first_y = ReSC(**parameters).fit_resample(X, y)
+    timed_sampler = ReSC(**parameters)
+    second_X, second_y = timed_sampler.fit_resample(X, y)
+
+    np.testing.assert_allclose(first_X, second_X)
+    np.testing.assert_array_equal(first_y, second_y)
+
+    expected_phases = {
+        "validation_seconds",
+        "representative_size_seconds",
+        "normalization_seconds",
+        "neighbor_fit_seconds",
+        "neighbor_query_seconds",
+        "weight_calculation_seconds",
+        "weighted_sampling_seconds",
+        "concatenation_seconds",
+        "unattributed_seconds",
+        "total_internal_seconds",
+    }
+    assert expected_phases.issubset(timed_sampler.phase_timings_)
+    assert all(
+        np.isfinite(value) and value >= 0.0
+        for value in timed_sampler.phase_timings_.values()
+    )
+    measured_total = sum(
+        value
+        for name, value in timed_sampler.phase_timings_.items()
+        if name != "total_internal_seconds"
+    )
+    assert np.isclose(
+        timed_sampler.phase_timings_["total_internal_seconds"],
+        measured_total,
+        rtol=1e-9,
+        atol=1e-6,
+    )
