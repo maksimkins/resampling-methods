@@ -1,4 +1,5 @@
 from typing import Tuple, List, Union, Any, Optional
+from time import perf_counter
 
 import numpy as np
 from numpy.typing import NDArray
@@ -6,6 +7,18 @@ from numpy.typing import NDArray
 from sklearn.cluster import KMeans
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import silhouette_score
+
+
+def _record_elapsed(
+    phase_timings: Optional[dict[str, float]],
+    phase_name: str,
+    started: float,
+) -> None:
+    """Accumulate one elapsed interval in an optional phase-timing mapping."""
+    if phase_timings is not None:
+        phase_timings[phase_name] = phase_timings.get(phase_name, 0.0) + (
+            perf_counter() - started
+        )
 
 
 _RESERVED_KNN_PARAMS = frozenset({"metric", "n_neighbors", "weights"})
@@ -62,6 +75,7 @@ def find_best_k_geometric(
     kmeans_params: Optional[dict] = None,
     fallback_k: int = 1,
     return_fallback_status: bool = False,
+    phase_timings: Optional[dict[str, float]] = None,
 ) -> Union[int, Tuple[int, bool]]:
     """
     Selects a cluster count using the highest observed Silhouette score.
@@ -89,6 +103,7 @@ def find_best_k_geometric(
         if k < 2 or k >= len(X_maj):
             continue
 
+        candidate_fit_started = perf_counter()
         kmeans = KMeans(
             n_clusters=k,
             random_state=random_state,
@@ -96,11 +111,22 @@ def find_best_k_geometric(
             **kmeans_kwargs
         )
         cluster_labels = kmeans.fit_predict(X_maj)
+        _record_elapsed(
+            phase_timings,
+            "candidate_kmeans_fit_seconds",
+            candidate_fit_started,
+        )
 
         if np.unique(cluster_labels).size < 2:
             continue
 
+        silhouette_started = perf_counter()
         score = silhouette_score(X_maj, cluster_labels)
+        _record_elapsed(
+            phase_timings,
+            "silhouette_score_seconds",
+            silhouette_started,
+        )
 
         if score > best_score:
             best_score = score
@@ -157,7 +183,8 @@ def get_safe_majority_samples_knn(
     maj_label: Union[int, str, float],
     n_neighbors: int = 5,
     threshold: float = 0.9,
-    knn_params: Optional[dict] = None
+    knn_params: Optional[dict] = None,
+    phase_timings: Optional[dict[str, float]] = None,
 ) -> Tuple[NDArray[np.float64], bool]:
     """
     Identifies majority inputs that pass the configured local-score threshold.
@@ -187,6 +214,7 @@ def get_safe_majority_samples_knn(
             f"n_neighbors={n_neighbors} must not exceed n_samples={len(X)}."
         )
 
+    neighbor_fit_started = perf_counter()
     knn_kwargs = validate_knn_params(knn_params)
     knn = KNeighborsClassifier(
         n_neighbors=n_neighbors,
@@ -195,8 +223,21 @@ def get_safe_majority_samples_knn(
         **knn_kwargs,
     )
     knn.fit(X, y)
+    _record_elapsed(
+        phase_timings,
+        "safety_neighbor_fit_seconds",
+        neighbor_fit_started,
+    )
 
+    neighbor_query_started = perf_counter()
     neighbor_indices = knn.kneighbors(X_maj, return_distance=False).copy()
+    _record_elapsed(
+        phase_timings,
+        "safety_neighbor_query_seconds",
+        neighbor_query_started,
+    )
+
+    safety_filter_started = perf_counter()
     majority_indices = np.flatnonzero(y == maj_label)
 
     # Explicitly include each queried training observation. This matters when
@@ -213,6 +254,11 @@ def get_safe_majority_samples_knn(
     fallback_used = len(X_maj_safe) == 0
     if len(X_maj_safe) == 0:
         X_maj_safe = X_maj
+    _record_elapsed(
+        phase_timings,
+        "safety_filter_seconds",
+        safety_filter_started,
+    )
 
     return X_maj_safe, fallback_used
 
@@ -230,6 +276,7 @@ def get_set_n_kmeans_re_sc(
     kmeans_params: Optional[dict] = None,
     max_k_candidates: Optional[int] = None,
     return_diagnostics: bool = False,
+    phase_timings: Optional[dict[str, float]] = None,
 ) -> Union[
     Tuple[NDArray[np.float64], bool],
     Tuple[NDArray[np.float64], bool, dict],
@@ -265,6 +312,7 @@ def get_set_n_kmeans_re_sc(
     Raises:
         ValueError: If either the minority or majority class contains zero samples.
     """
+    bounds_started = perf_counter()
     X_min = X[y == min_label]
     X_maj = X[y == maj_label]
     
@@ -277,22 +325,39 @@ def get_set_n_kmeans_re_sc(
     n1 = int((n_min ** 2) / n_maj)
     k_min = max(1, n1)
     k_max = max(1, int(M * n1))
+    _record_elapsed(
+        phase_timings,
+        "representative_bounds_seconds",
+        bounds_started,
+    )
 
+    timing_kwargs = (
+        {"phase_timings": phase_timings}
+        if phase_timings is not None
+        else {}
+    )
     X_maj_safe, fallback_used = get_safe_majority_samples_knn(
-        X=X, 
-        y=y, 
-        X_maj=X_maj, 
+        X=X,
+        y=y,
+        X_maj=X_maj,
         maj_label=maj_label,
         n_neighbors=n_neighbors,
         threshold=safe_threshold,
-        knn_params=knn_params
+        knn_params=knn_params,
+        **timing_kwargs,
     )
 
+    candidate_grid_started = perf_counter()
     candidates = build_k_candidate_grid(
         k_min=k_min,
         k_max=k_max,
         safe_majority_count=len(X_maj_safe),
         max_k_candidates=max_k_candidates,
+    )
+    _record_elapsed(
+        phase_timings,
+        "candidate_grid_seconds",
+        candidate_grid_started,
     )
     fallback_k = min(k_min, len(X_maj_safe))
 
@@ -303,8 +368,10 @@ def get_set_n_kmeans_re_sc(
         kmeans_params=kmeans_params,
         fallback_k=fallback_k,
         return_fallback_status=True,
+        **timing_kwargs,
     )
 
+    final_kmeans_started = perf_counter()
     kmeans_kwargs, n_init_val = _split_kmeans_params(kmeans_params)
 
     kmeans = KMeans(
@@ -314,6 +381,11 @@ def get_set_n_kmeans_re_sc(
         **kmeans_kwargs
     )
     kmeans.fit(X_maj_safe)
+    _record_elapsed(
+        phase_timings,
+        "final_kmeans_fit_seconds",
+        final_kmeans_started,
+    )
 
     X_set_n = kmeans.cluster_centers_
 

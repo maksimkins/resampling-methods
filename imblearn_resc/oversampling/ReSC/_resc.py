@@ -1,5 +1,6 @@
 from typing import Optional, Union, List, Tuple, Any
 from numbers import Real, Integral
+from time import perf_counter
 
 import numpy as np
 from numpy.typing import NDArray
@@ -32,6 +33,8 @@ class ReSC(BaseSampler):
         epsilon (float): Acceptable tolerance error for representing the majority class distribution.
         random_state (int, RandomState instance, default=None): Controls the randomization of the algorithm.
         knn_params (dict, optional): Additional keyword arguments to pass to NearestNeighbors.
+        phase_timings_ (dict): Per-phase elapsed times in seconds, populated after
+            a successful resampling call.
 
     Methods:
         _fit_resample(X, y): Core resampling logic that executes Re-SC and returns concatenated arrays.
@@ -77,6 +80,19 @@ class ReSC(BaseSampler):
         Raises:
             ValueError: If the dataset does not contain at least two distinct classes.
         """ 
+        total_started = perf_counter()
+        phase_timings = {
+            "validation_seconds": 0.0,
+            "representative_size_seconds": 0.0,
+            "normalization_seconds": 0.0,
+            "neighbor_fit_seconds": 0.0,
+            "neighbor_query_seconds": 0.0,
+            "weight_calculation_seconds": 0.0,
+            "weighted_sampling_seconds": 0.0,
+            "concatenation_seconds": 0.0,
+        }
+
+        validation_started = perf_counter()
         labels, counts = np.unique(y, return_counts=True)
         if len(labels) < 2:
             raise ValueError("The target 'y' needs to have at least two classes.")
@@ -86,13 +102,20 @@ class ReSC(BaseSampler):
 
         X_min = X[y == min_label]
         X_maj = X[y == maj_label]
+        phase_timings["validation_seconds"] = (
+            perf_counter() - validation_started
+        )
 
+        size_started = perf_counter()
         target_size = calculate_set_n_size_re_sc(
             X_maj=X_maj, 
             P=len(X_min), 
             alpha=self.alpha, 
             epsilon=self.epsilon, 
             M=self.M
+        )
+        phase_timings["representative_size_seconds"] = (
+            perf_counter() - size_started
         )
         
         random_state_obj = check_random_state(self.random_state)
@@ -105,9 +128,11 @@ class ReSC(BaseSampler):
             maj_label=maj_label,
             k=self.k,
             knn_params=self.knn_params,
-            random_state=seed
+            random_state=seed,
+            phase_timings=phase_timings,
         )
-        
+
+        concatenation_started = perf_counter()
         X_resampled, y_resampled = re_sc_concatenation(
             X_min=X_min, 
             X_maj=X_maj, 
@@ -115,6 +140,17 @@ class ReSC(BaseSampler):
             min_label=min_label,
             maj_label=maj_label
         )
+
+        phase_timings["concatenation_seconds"] = (
+            perf_counter() - concatenation_started
+        )
+        total_internal_seconds = perf_counter() - total_started
+        measured_seconds = sum(phase_timings.values())
+        phase_timings["unattributed_seconds"] = max(
+            0.0, total_internal_seconds - measured_seconds
+        )
+        phase_timings["total_internal_seconds"] = total_internal_seconds
+        self.phase_timings_ = phase_timings
 
         return X_resampled, y_resampled
 

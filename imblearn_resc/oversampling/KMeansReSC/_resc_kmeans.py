@@ -1,5 +1,6 @@
 from typing import Optional, Union, List, Tuple, Any
 from numbers import Real, Integral
+from time import perf_counter
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,6 +37,8 @@ class KMeansReSC(BaseSampler):
         kmeans_params (dict, optional): Additional keyword arguments to pass to KMeans.
         max_k_candidates (int or None): Maximum number of evenly spaced,
             Silhouette-feasible candidate values. None evaluates the complete interval.
+        phase_timings_ (dict): Per-phase elapsed times in seconds, populated after
+            a successful resampling call.
 
     Methods:
         _fit_resample(X, y): Core resampling logic that executes KMeansReSC and returns concatenated arrays.
@@ -93,6 +96,21 @@ class KMeansReSC(BaseSampler):
             ValueError: If the dataset is not strictly imbalanced binary data.
         """
 
+        total_started = perf_counter()
+        phase_timings = {
+            "validation_seconds": 0.0,
+            "representative_bounds_seconds": 0.0,
+            "safety_neighbor_fit_seconds": 0.0,
+            "safety_neighbor_query_seconds": 0.0,
+            "safety_filter_seconds": 0.0,
+            "candidate_grid_seconds": 0.0,
+            "candidate_kmeans_fit_seconds": 0.0,
+            "silhouette_score_seconds": 0.0,
+            "final_kmeans_fit_seconds": 0.0,
+            "concatenation_seconds": 0.0,
+        }
+
+        validation_started = perf_counter()
         labels, counts = self._validate_target_domain(y)
         if not np.isfinite(self.M):
             raise ValueError("M must be finite.")
@@ -105,6 +123,9 @@ class KMeansReSC(BaseSampler):
         # Validate ownership before running the safety filter or any KMeans fit.
         validate_knn_params(self.knn_params)
         validate_kmeans_params(self.kmeans_params)
+        phase_timings["validation_seconds"] = (
+            perf_counter() - validation_started
+        )
 
         random_state_obj = check_random_state(self.random_state)
         seed = random_state_obj.randint(0, 2**31 - 1)
@@ -125,6 +146,7 @@ class KMeansReSC(BaseSampler):
             kmeans_params=self.kmeans_params,
             max_k_candidates=self.max_k_candidates,
             return_diagnostics=True,
+            phase_timings=phase_timings,
         )
         self.fallback_used_ = bool(fallback_used)
         self.selection_fallback_used_ = bool(
@@ -137,6 +159,7 @@ class KMeansReSC(BaseSampler):
         self.candidate_ks_ = tuple(diagnostics["candidate_ks"])
         self.selected_k_ = int(diagnostics["selected_k"])
 
+        concatenation_started = perf_counter()
         X_resampled, y_resampled = kmeans_re_sc_concatenation(
             X_min=X[y == min_label],
             X_maj=X[y == maj_label],
@@ -144,6 +167,17 @@ class KMeansReSC(BaseSampler):
             min_label=min_label,
             maj_label=maj_label
         )
+
+        phase_timings["concatenation_seconds"] = (
+            perf_counter() - concatenation_started
+        )
+        total_internal_seconds = perf_counter() - total_started
+        measured_seconds = sum(phase_timings.values())
+        phase_timings["unattributed_seconds"] = max(
+            0.0, total_internal_seconds - measured_seconds
+        )
+        phase_timings["total_internal_seconds"] = total_internal_seconds
+        self.phase_timings_ = phase_timings
 
         return X_resampled, y_resampled
 
